@@ -27,6 +27,16 @@ parser.add_argument(
 )
 
 
+def ARPposioning():
+    print(f'ARP spoofing selected.\n')
+
+def DNSposioning():
+    print(f'DNS spoofing selected.\n')
+
+def SSLstripping():
+    print(f'SSL stripping selected.\n')
+
+
 def main(use_arp, use_dns, use_ssl):
     print(f'2IC80 tool booting up')
     # print(f'Selected settings: --arp {use_arp}, --dns {use_dns}, --ssl {use_ssl} \n')
@@ -43,11 +53,11 @@ def main(use_arp, use_dns, use_ssl):
         if name == 'd':
             break
         elif name == 'a':
-            print(f'ARP spoofing selected.\n')
+            ARPposioning()
         elif name == 'b':
-            print(f'DNS spoofing selected.\n')
+            DNSposioning()
         elif name == 'c':
-            print(f'SSL stripping selected.\n')
+            SSLstripping()
         else:
             print(f'Invalid input. Please try again.\n')
 
@@ -55,6 +65,7 @@ def main(use_arp, use_dns, use_ssl):
 
     if count_args_true > 1:
         print(f'{bcolors.WARNING}WARNING: You have selected multiple arguments.{bcolors.ENDC}')
+
 
 
 # Entry point: This part runs when the tool is called from the command line using `python tool.py`. The if-statement is not necessary, but good practice.
