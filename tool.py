@@ -30,7 +30,6 @@ parser.add_argument(
 
 
 def ARPposioning():
-    print(f'a')
     macAttacker= input("Enter MAC address of attacker: ")  
     ipAttacker= input("Enter IP address of attacker: ")
 
