@@ -1,8 +1,7 @@
-#encoding = utf-8
-import os
-import sys
-import argparse
+import sys, os, argparse
+from util import bcolors
 
+# Set up argument parser for using arguments in the command line
 parser = argparse.ArgumentParser(
     prog='2IC80 tool',
     description='A tool for ARP/DNS spoofing with SSL stripping capabilities',
@@ -28,16 +27,12 @@ parser.add_argument(
 )
 
 
-class bcolors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m' 
+# Entry point: This part runs when the tool is called from the command line using `python tool.py`. The if-statement is not necessary, but good practice.
+if __name__ == '__main__':
+    args = parser.parse_args()
+
+    main(use_arp=args.arp, use_dns=args.dns, use_ssl=args.ssl)
+
 
 
 def main(use_arp, use_dns, use_ssl):
@@ -45,12 +40,8 @@ def main(use_arp, use_dns, use_ssl):
     print(f'Selected settings: --arp {use_arp}, --dns {use_dns}, --ssl {use_ssl}')
     
     count_args_true = sum(bool(x) for x in [use_arp, use_dns, use_ssl])
+
     if count_args_true > 1:
         print(f'{bcolors.WARNING}WARNING: You have selected multiple arguments.{bcolors.ENDC}')
 
-
-if __name__ == '__main__':
-    args = parser.parse_args()
-
-    main(use_arp=args.arp, use_dns=args.dns, use_ssl=args.ssl)
 

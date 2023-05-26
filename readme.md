@@ -11,6 +11,21 @@ The tool in this repository is a full-fledged security attacking tool written in
 2. DNS spoofing
 3. SSL stripping
 
+
+## Executing the tool
+
+On a device with Python installed, run the following in your command line:
+
+```
+python tool.py
+```
+
+**Hints**:
+- To view the available arguments, use the `-h` argument after the statement above.
+- On some Python installations you'll need to use `python3` instead of `python`
+
+
+
 ## Contribution
 
 This tool is made by group 44.
