@@ -29,8 +29,28 @@ parser.add_argument(
 
 def main(use_arp, use_dns, use_ssl):
     print(f'2IC80 tool booting up')
-    print(f'Selected settings: --arp {use_arp}, --dns {use_dns}, --ssl {use_ssl}')
-    
+    # print(f'Selected settings: --arp {use_arp}, --dns {use_dns}, --ssl {use_ssl} \n')
+    while True:
+        print(f'Select the preferred attack from the list below:\n')
+        print(f'    a) ARP spoofing')
+        print(f'    b) DNS spoofing')
+        print(f'    c) SSL stripping')
+        print(f'    d) Exit\n')
+        name=input(f'\nYour choice: ')
+        print(f'\n')
+        print(f'You have selected {name}.\n')
+
+        if name == 'd':
+            break
+        elif name == 'a':
+            print(f'ARP spoofing selected.\n')
+        elif name == 'b':
+            print(f'DNS spoofing selected.\n')
+        elif name == 'c':
+            print(f'SSL stripping selected.\n')
+        else:
+            print(f'Invalid input. Please try again.\n')
+
     count_args_true = sum(bool(x) for x in [use_arp, use_dns, use_ssl])
 
     if count_args_true > 1:
