@@ -35,8 +35,8 @@ def ARPposioning():
 
     victimNumber=input('Do you want to spoof one or multiple victims? (1/m)')
     if victimNumber == "1":
-        macVictim= input("Enter MAC address of victim: ")
         ipVictim= input("Enter IP address of victim: ")
+        macVictim= getmacbyip(ipVictim)
 
         ipToSpoof= input("Enter IP address to spoof: ")
         print(ipVictim)
@@ -56,8 +56,9 @@ def ARPposioning():
             lowerBoundary=lowerBoundary=IPrange.split(".")[3].split("-")[0]
 
             for i in range(int(lowerBoundary), int(upperBoundary)):
-                macVictim= "To be determined"
+                 
                 ipVictim= IPrange.split(".")[0]+"."+IPrange.split(".")[1]+"."+IPrange.split(".")[2]+"."+str(i)
+                macVictim= getmacbyip(ipVictim)
 
                 print(ipVictim)
                 # arp=Ether() / ARP()
