@@ -1,31 +1,21 @@
 import sys, os, argparse 
-from util import bcolors
-import scapy
-from scapy.all import *
+from util import bcolors, clear, parse_ip_input, validate_domain
+#import scapy
+#from scapy.all import *
+
+# The name of the network interface to use for sniffing and sending packets
+INTERFACE_NAME = "enp0s3"
+ATTACKS = {
+    'a': 'ARP poisoning',
+    'b': 'DNS spoofing',
+    'c': 'SSL stripping'
+}
 
 # Set up argument parser for using arguments in the command line
 parser = argparse.ArgumentParser(
     prog='2IC80 tool',
-    description='A tool for ARP/DNS spoofing with SSL stripping capabilities',
-    epilog='Good luck!'
-)
-
-parser.add_argument(
-    '--arp',
-    action='store_true',
-    help='Run the ARP spoofer'
-)
-
-parser.add_argument(
-    '--dns',
-    action='store_true',
-    help='Run the DNS spoofer'
-)
-
-parser.add_argument(
-    '--ssl',
-    action='store_true',
-    help='Run SSL stripping'
+    description='A tool for ARP poising, DNS spoofing and SSL stripping.',
+    epilog='There are no arguments, please use the menu provided when running the tool. Good luck!'
 )
 
 
@@ -73,49 +63,94 @@ def ARPposioning():
         print("\n\n")
     
 
-    # sendp(arp, iface="ënp0s3")
+    # sendp(arp, iface=INTERFACE_NAME)
+    print(f'{bcolors.OKCYAN}{ATTACKS["a"]}{bcolors.ENDC} has been executed (packet has been succesfully sent)\n')
 
-def DNSposioning():
-    print(f'DNS spoofing selected.\n')
+def DNSpoisoning():
+    dns_ip = ''
+    dns_domain = ''
+
+    # Ask for a domain until a valid one is provided
+    while not dns_domain:
+        dns_domain_input = input('Enter the domain name to spoof: ')
+        dns_domain_valid = validate_domain(dns_domain_input)
+
+        if dns_domain_valid:
+            dns_domain = dns_domain_input
+        else:
+            print(f'{bcolors.WARNING}Please enter a valid domain (format: www.example.com){bcolors.ENDC}')
+
+
+    # Ask for an IP address until a valid one is provided
+    while not dns_ip:
+        dns_ip_input = input('Enter the IP address to redirect the spoofed domain name to: ')
+        dns_ip_parsed = parse_ip_input(dns_ip_input)
+
+        if len(dns_ip_parsed) == 1:
+            dns_ip = dns_ip_parsed[0]
+        else:
+            print(f'{bcolors.WARNING}Please fill in a single valid IP address, not a range or list.{bcolors.ENDC}\n')
+
+    # Assumption: ARP poisoning has been applied to make the victim think the attacker is the router (where the DNS lookup message will be sent)
+    # The data below is assumed from that ARP poisoning attack
+    mac_attacker = ''
+    mac_victim = ''
+    ip_attacker = ''
+    ip_victim = ''
+
+    # dns = Ether() / IP() / UDP() / DNS()
+    
+    # # Set the source and destination MAC and IP addresses (from attacker back to victim)
+    # dns[Ether].src = mac_attacker
+    # dns[Ether].dst = mac_victim
+    # dns[IP].src = ip_attacker
+    # dns[IP].dst = ip_victim
+
+    # # Set the DNS packet's source and destination port to 53, the DNS port
+    # dns[UDP].sport = 53
+    # dns[UDP].dport = 53
+
+    # dns[DNS].id = random.randint(0, 65535)                # Set the DNS packet's transaction ID to a random number
+    # dns[DNS].qd = DNSQR(qname=dns_domain)                 # Set the DNS packet's query to the domain name to be spoofed
+    # dns[DNS].an = DNSRR(rrname=dns_domain, rdata=dns_ip)  # Set the DNS packet's answer to the IP address of your choice
+
+    # # Send the DNS packet
+    # sendp(dns, iface=INTERFACE_NAME)
+
+    print(f'\n{bcolors.OKCYAN}{ATTACKS["b"]}{bcolors.ENDC} has been executed (sent a packet to victim resolving {bcolors.OKCYAN}{dns_domain}{bcolors.ENDC} to {bcolors.OKCYAN}{dns_ip}{bcolors.ENDC})\n')
 
 def SSLstripping():
     print(f'SSL stripping selected.\n')
 
 
-def main(use_arp, use_dns, use_ssl):
-    print(f'2IC80 tool booting up')
-    # print(f'Selected settings: --arp {use_arp}, --dns {use_dns}, --ssl {use_ssl} \n')
+def main():
+    clear()
+    print('2IC80: Tool by G44')
     while True:
         print(f'Select the preferred attack from the list below:\n')
-        print(f'    a) ARP spoofing')
-        print(f'    b) DNS spoofing')
-        print(f'    c) SSL stripping')
-        print(f'    d) Exit\n')
-        name=input(f'\nYour choice: ')
-        print(f'\n')
-        print(f'You have selected {name}.\n')
+        
+        # Render options
+        for key in ATTACKS:
+            print(f'    {bcolors.OKCYAN}{key}{bcolors.ENDC}) {ATTACKS[key]}')
+        print(f'    {bcolors.OKCYAN}d{bcolors.ENDC}) Exit\n')
+
+        name = input(f'\nYour choice: {bcolors.OKCYAN}')
+        print(f'{bcolors.ENDC}\n')
+        print(f'You have selected {bcolors.OKCYAN}{ATTACKS[name] if name in ATTACKS else name}{bcolors.ENDC}.\n')
 
         if name == 'd':
             break
         elif name == 'a':
             ARPposioning()
         elif name == 'b':
-            DNSposioning()
+            DNSpoisoning()
         elif name == 'c':
             SSLstripping()
         else:
             print(f'Invalid input. Please try again.\n')
 
-    count_args_true = sum(bool(x) for x in [use_arp, use_dns, use_ssl])
 
-    if count_args_true > 1:
-        print(f'{bcolors.WARNING}WARNING: You have selected multiple arguments.{bcolors.ENDC}')
-
-
-
-# Entry point: This part runs when the tool is called from the command line using `python tool.py`. The if-statement is not necessary, but good practice.
+# Entry point: This part runs when the tool is called from the command line using `python tool.py`. The if-statement is not required, but good practice.
 if __name__ == '__main__':
-    args = parser.parse_args()
-
-    main(use_arp=args.arp, use_dns=args.dns, use_ssl=args.ssl)
-
+    parser.parse_args()
+    main()
