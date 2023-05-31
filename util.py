@@ -26,7 +26,7 @@ def clear():
     os.system('cls' if os.name=='nt' else 'clear')
 
 
-def parse_ip_input(ip_input: str):
+def parse_ip_input(ip_input):
     """
     Parse the IP address input by the user and return a list of IP adresses.
 
@@ -45,11 +45,11 @@ def parse_ip_input(ip_input: str):
         ip_list = [str(ip) for ip in ipaddress.IPv4Network(ip_input)]
     
     elif "-" in ip_input:
-        ip_input_prefix = ip_input.split(".")[:3]
+        ip_input_prefix = ".".join(ip_input.split(".")[:3])
         upper_boundary, lower_boundary = ip_input.split(".")[3].split("-")
 
         for i in range(int(lower_boundary), int(upper_boundary)):
-            ip_list.append(f'{ip_input_prefix}.{i}')
+            ip_list.append('{ip_input_prefix}.{i}'.format(ip_input_prefix=ip_input_prefix, i=i))
 
     else:
         ip_list.append(ip_input)
@@ -57,10 +57,10 @@ def parse_ip_input(ip_input: str):
     # Validate the IP addresses
     for ip in ip_list:
         if not validate_ip(ip):
-            print(f'{bcolors.FAIL}Invalid IP address: {ip}{bcolors.ENDC}')
+            print('{fail}Invalid IP address: {ip}{endc}'.format(fail=bcolors.FAIL, ip=ip, endc=bcolors.ENDC))
             return []
 
-    print(f'Parsed IP list: {ip_list}')
+    print('Parsed IP list: {ip_list}'.format(ip_list=ip_list))
     
     return ip_list
 
