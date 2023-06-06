@@ -42,7 +42,7 @@ def parse_ip_input(ip_input):
         ip_list = ip_input.split(",")
     
     elif "/" in ip_input:
-        ip_list = [str(ip) for ip in ipaddress.IPv4Network(ip_input)]
+        ip_list = [str(ip) for ip in ipaddress.IPv4Network(unicode(ip_input))]
     
     elif "-" in ip_input:
         ip_input_prefix = ".".join(ip_input.split(".")[:3])
@@ -70,7 +70,7 @@ def validate_ip(ip):
     Validate the IP address input by the user.
     """
     try:
-        ipaddress.ip_address(ip)
+        ipaddress.ip_address(unicode(ip))
         return True
     except ValueError:
         return False
