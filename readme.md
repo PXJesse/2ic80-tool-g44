@@ -17,9 +17,18 @@ The tool in this repository is a full-fledged security attacking tool written in
 **Prerequisites:**
 - `scapy`
 
-Install the prerequisites by running:
+Install the prerequisites by running (Python 2.7):
+
+Upgrading your python 2.7 installation:
+```
+sudo apt-get install python-dev libssl-dev
+sudo apt remove python3-blinker
+```
 
 ```
+pip install --upgrade "pip < 21.0"
+pip install setuptools==44.0.0
+pip install mitmproxy
 pip install scapy
 ```
 
