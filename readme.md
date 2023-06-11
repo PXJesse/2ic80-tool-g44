@@ -21,14 +21,13 @@ Install the prerequisites by running (Python 2.7):
 
 Upgrading your python 2.7 installation:
 ```
-sudo apt-get install python-dev libssl-dev
-sudo apt remove python3-blinker
+sudo apt-get install python-dev libssl-dev libnetfilter-queue-dev build-essential
 ```
 
 ```
 pip install --upgrade "pip < 21.0"
-pip install setuptools==44.0.0
-pip install mitmproxy
+pip install setuptools
+pip install netfilterqueue
 pip install scapy
 ```
 

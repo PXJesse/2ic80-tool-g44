@@ -59,8 +59,6 @@ def parse_ip_input(ip_input):
         if not validate_ip(ip):
             print('{fail}Invalid IP address: {ip}{endc}'.format(fail=bcolors.FAIL, ip=ip, endc=bcolors.ENDC))
             return []
-
-    print('Parsed IP list: {ip_list}'.format(ip_list=ip_list))
     
     return ip_list
 
@@ -70,9 +68,10 @@ def validate_ip(ip):
     Validate the IP address input by the user.
     """
     try:
-        ipaddress.ip_address(ip)
+        ipaddress.ip_address(unicode(ip))
         return True
-    except ValueError:
+    except ValueError as e:
+        print(e)
         return False
 
 

