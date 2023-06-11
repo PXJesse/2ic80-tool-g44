@@ -73,8 +73,7 @@ def validate_ip(ip):
     try:
         ipaddress.ip_address(unicode(ip))
         return True
-    except ValueError as e:
-        print(e)
+    except ValueError:
         return False
 
 

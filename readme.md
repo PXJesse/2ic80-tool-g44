@@ -9,21 +9,21 @@ The tool in this repository is a full-fledged security attacking tool written in
 
 1. ARP poisoning
 2. DNS spoofing
-3. SSL stripping
+3. ~~SSL stripping~~ unfortunately, SSL stripping is as of yet not functional
 
 
 ## Executing the tool
 
-**Prerequisites:**
-- `scapy`
+### Prerequisites
 
-Install the prerequisites by running (Python 2.7):
+DISCLAIMER: The following prerequisites are based on the configuration of the M3 Linux Mint attacker machine as provided by the course 2IC80 — Lab on Offensive Computer Security, 2022-2023. If your attacker machine does not have the same configuration as M3, your system might require more packages to be installed and/or upgraded.
 
-Upgrading your python 2.7 installation:
+Installing the software prerequisites:
 ```
 sudo apt-get install python-dev libssl-dev libnetfilter-queue-dev build-essential
 ```
 
+Installing the Python prerequisites:
 ```
 pip install --upgrade "pip < 21.0"
 pip install setuptools
@@ -31,22 +31,19 @@ pip install netfilterqueue
 pip install scapy
 ```
 
-**The tool:**
+Note that the `pip` commands above might require `sudo` to be executed successfully.
 
-On a device with Python installed, run the following in your command line:
+### Executing the tool
+
+On a device with Python 2.7 and the prerequisites installed, run the following in your command line:
 
 ```
 python tool.py
 ```
 
-**Hints**:
-- To view the available arguments, use the `-h` argument after the statement above.
-- On some Python installations you'll need to use `python3` instead of `python`.
-- Any Python version >= 2.7 is supported.
-
+The tool will present you with an interactive menu. Follow the instructions on the screen to execute the desired attack.
 
 
 ## Contribution
 
 This tool is made by group 44.
-
