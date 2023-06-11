@@ -42,14 +42,17 @@ def parse_ip_input(ip_input):
         ip_list = ip_input.split(",")
     
     elif "/" in ip_input:
+        ip_input = unicode(ip_input)
         ip_list = [str(ip) for ip in ipaddress.IPv4Network(ip_input)]
     
     elif "-" in ip_input:
-        ip_input_prefix = ".".join(ip_input.split(".")[:3])
-        upper_boundary, lower_boundary = ip_input.split(".")[3].split("-")
+        ip_input_split = ip_input.split(".")
+        ip_input_prefix = ".".join(ip_input_split[:3])
+        lower_boundary, upper_boundary = ip_input_split[3].split("-")
 
-        for i in range(int(lower_boundary), int(upper_boundary)):
-            ip_list.append('{ip_input_prefix}.{i}'.format(ip_input_prefix=ip_input_prefix, i=i))
+        for i in range(int(lower_boundary), int(upper_boundary) + 1):
+            ip = '{ip_input_prefix}.{i}'.format(ip_input_prefix=ip_input_prefix, i=i)
+            ip_list.append(ip)
 
     else:
         ip_list.append(ip_input)
